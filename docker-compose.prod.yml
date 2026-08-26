@@ -1,0 +1,22 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE}
+    container_name: tma_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend.env
+    extra_hosts:
+      # Lets the container reach the VPS's existing prohome_postgres via its
+      # host-published port (5432), regardless of which docker network it's on.
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "3010:3000"
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    container_name: tma_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8082:80"

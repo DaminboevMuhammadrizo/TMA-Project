@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Category {
+  AUDIO
+  VIDEO
+  IMAGE_STICKER
+}
+
+enum MediaType {
+  AUDIO
+  VOICE
+  VIDEO
+  VIDEO_NOTE
+  PHOTO
+  ANIMATION
+  STICKER
+}
+
+model ChannelMedia {
+  id                Int       @id @default(autoincrement())
+  messageId         BigInt    @unique @map("message_id")
+  category          Category
+  mediaType         MediaType @map("media_type")
+  fileId            String    @map("file_id")
+  fileUniqueId      String    @unique @map("file_unique_id")
+  caption           String?
+  links             String[]  @default([])
+  replyToMessageId  BigInt?   @map("reply_to_message_id")
+  replyToText       String?   @map("reply_to_text")
+  viewsCount        Int       @default(0) @map("views_count")
+  mimeType          String?   @map("mime_type")
+  fileSize          Int?      @map("file_size")
+  durationSec       Int?      @map("duration_sec")
+  width             Int?
+  height            Int?
+  fileName          String?   @map("file_name")
+  thumbFileUniqueId String?   @map("thumb_file_unique_id")
+  stickerSetName    String?   @map("sticker_set_name")
+  createdAt         DateTime  @map("created_at")
+  syncedAt          DateTime  @default(now()) @map("synced_at")
+
+  @@map("channel_media")
+}
