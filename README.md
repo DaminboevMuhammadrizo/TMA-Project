@@ -91,6 +91,30 @@ Backfill (`POST /api/sync/full`) tugagach:
 2. Xohlasangiz, Telegram'da (Sozlamalar → Qurilmalar) shu session'ni ham bekor qiling.
 3. `main`ga istalgan kichik commit push qiling (workflow shunda qayta ishga tushadi) — backend qayta deploy bo'ladi, GramJS endi ulanmaydi, faqat bot yangi postlarni kuzatib boradi.
 
+## Domen + HTTPS (Telegram Mini App shart qiladi)
+
+Telegram Mini App faqat HTTPS orqali ochiladi — shuning uchun frontend'ni oddiy `http://<VPS_IP>:8082` emas, domen orqali HTTPS bilan ochish kerak. `deploy/nginx/tma.zamon-agency.uz.conf` — VPS'dagi host-level Nginx uchun tayyor konfiguratsiya (`/api/*`ni backend'ga, qolganini frontend'ga yo'naltiradi).
+
+**VPS'da bir martalik sozlash** (SSH orqali kirib):
+```bash
+# Agar host-level Nginx hali o'rnatilmagan bo'lsa:
+apt update && apt install -y nginx certbot python3-certbot-nginx
+
+# Config faylni joylashtiring (repo /var/www/tma-gallery'ga clone qilingan bo'lsa, shundan nusxalash mumkin):
+cp /var/www/tma-gallery/deploy/nginx/tma.zamon-agency.uz.conf /etc/nginx/sites-available/tma.zamon-agency.uz.conf
+ln -s /etc/nginx/sites-available/tma.zamon-agency.uz.conf /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx
+
+# SSL sertifikat oling (avtomatik HTTPS'ga sozlaydi, http->https redirect qo'shadi):
+certbot --nginx -d tma.zamon-agency.uz
+```
+
+**Keyin GitHub Secrets'ni yangilang** (chunki `VITE_API_BASE_URL` build-vaqtida "qotib qoladi", va `CORS_ORIGIN` backend'da domenni tan olishi kerak):
+- `VITE_API_BASE_URL` → `https://tma.zamon-agency.uz/api`
+- `BACKEND_ENV_FILE` ichidagi `CORS_ORIGIN` qatorini → `https://tma.zamon-agency.uz`
+
+Shundan so'ng `main`ga kichik commit push qiling — frontend yangi API manzili bilan qayta build bo'ladi, backend esa yangi domendan kelgan so'rovlarni CORS orqali qabul qiladi.
+
 ## Ma'lum cheklovlar
 
 - **Share/forward**: Telegram WebApp JS SDK'da faylni aynan forward qiluvchi native API yo'q — eng yaqin alternativa (`t.me/share/url` chat tanlagich) ishlatilgan.
