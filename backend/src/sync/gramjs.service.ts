@@ -69,16 +69,37 @@ export class GramjsService implements OnModuleInit {
       return;
     }
 
-    this.client = new TelegramClient(new StringSession(session), Number(apiId), apiHash, {
+    const client = new TelegramClient(new StringSession(session), Number(apiId), apiHash, {
       connectionRetries: 5,
     });
 
-    await this.client.connect();
-    this.logger.log('GramJS client connected');
+    try {
+      await client.connect();
+      this.logger.log('GramJS client connected');
 
-    const channel = this.config.get<string>('TELEGRAM_CHANNEL');
-    if (channel) {
-      this.channelEntity = await this.client.getEntity(channel);
+      const channel = this.config.get<string>('TELEGRAM_CHANNEL');
+      if (channel) {
+        // A fresh session has no cached access_hash for entities it hasn't
+        // "seen" yet — resolving a bare numeric channel ID without first
+        // loading the dialog list fails with "Could not find the input
+        // entity" even though the account is a member of the channel.
+        // getDialogs() hydrates that local cache first.
+        await client.getDialogs({});
+        this.channelEntity = await client.getEntity(channel);
+      }
+
+      // Only expose the client once fully set up, so ensureReady() can't
+      // hand out a client whose channel entity failed to resolve.
+      this.client = client;
+    } catch (error) {
+      // A bad/revoked session or an unresolvable channel must not take the
+      // whole backend down — the Media API and the bot's real-time sync are
+      // independent of GramJS and should keep working regardless.
+      this.lastError = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `GramJS setup failed — historical backfill and gramjs-backed file downloads are disabled until this is fixed: ${this.lastError}`,
+      );
+      await client.destroy().catch(() => undefined);
     }
   }
 
