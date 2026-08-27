@@ -141,6 +141,7 @@ TELEGRAM_API_HASH=
 TELEGRAM_SESSION=           # GramJS StringSession, obtained via one-time login script
 TELEGRAM_CHANNEL=           # @channelusername or numeric id
 BOT_TOKEN=                  # from @BotFather, for grammY realtime listener + file proxy
+MINI_APP_URL=                # https://your-domain, shown as the "Open App" button on /start (must be HTTPS)
 ADMIN_TOKEN=                # shared secret for /api/sync/* endpoints
 PORT=3000
 CORS_ORIGIN=http://localhost:5173

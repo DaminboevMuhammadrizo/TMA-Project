@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Bot, Context } from 'grammy';
+import { Bot, Context, InlineKeyboard } from 'grammy';
 import type { FilterQuery } from 'grammy';
 import type { Message, PhotoSize } from 'grammy/types';
 import { MediaType } from '@prisma/client';
@@ -43,6 +43,20 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.bot = new Bot<Context>(token);
+
+    const miniAppUrl = this.config.get<string>('MINI_APP_URL');
+    this.bot.command('start', async (ctx) => {
+      const welcome =
+        '📁 Media Gallery\n\nKanaldagi barcha audio, video, rasm va stikerlarni qulay galereya ko\'rinishida ko\'ring, qidiring va ulashing.';
+      if (miniAppUrl) {
+        await ctx.reply(welcome, {
+          reply_markup: new InlineKeyboard().webApp('🚀 Open App', miniAppUrl),
+        });
+      } else {
+        this.logger.warn('MINI_APP_URL not set — /start reply has no Open App button.');
+        await ctx.reply(welcome);
+      }
+    });
 
     this.bot.on(TRACKED_UPDATE_KINDS, async (ctx) => {
       const message = ctx.channelPost;
