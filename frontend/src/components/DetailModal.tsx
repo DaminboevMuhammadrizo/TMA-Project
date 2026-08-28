@@ -2,12 +2,15 @@ import { useEffect } from 'react';
 import type { MediaItem } from '@/api/types';
 import { formatDate, formatDuration, formatFileSize, formatViews } from '@/utils/format';
 import { AudioPlayer } from './AudioPlayer';
+import { FavoriteButton } from './FavoriteButton';
 import { CloseIcon, EyeIcon, LinkIcon, ReplyIcon, ShareIcon, StickerIcon } from './icons';
 
 interface DetailModalProps {
   item: MediaItem;
+  isTelegram: boolean;
   onClose: () => void;
   onShare: (item: MediaItem) => void;
+  onToggleFavorite: (item: MediaItem) => void;
   openLink: (url: string) => void;
 }
 
@@ -89,7 +92,7 @@ function MediaPreview({ item }: { item: MediaItem }) {
   }
 }
 
-export function DetailModal({ item, onClose, onShare, openLink }: DetailModalProps) {
+export function DetailModal({ item, isTelegram, onClose, onShare, onToggleFavorite, openLink }: DetailModalProps) {
   useEffect(() => {
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -105,11 +108,11 @@ export function DetailModal({ item, onClose, onShare, openLink }: DetailModalPro
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 animate-fade-in"
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-sheet sm:rounded-sheet bg-tg-bg text-tg-text animate-slide-up safe-bottom"
+        className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-sheet sm:rounded-sheet bg-tg-bg text-tg-text shadow-sheet animate-slide-up safe-bottom"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 flex justify-center pt-2 pb-1 bg-tg-bg z-10 sm:hidden">
@@ -118,23 +121,26 @@ export function DetailModal({ item, onClose, onShare, openLink }: DetailModalPro
 
         <div className="flex items-center justify-between px-4 py-2">
           <span className="text-xs text-tg-hint">{formatDate(item.createdAt)}</span>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Yopish"
-            className="w-8 h-8 rounded-full flex items-center justify-center bg-tg-section-bg text-tg-hint"
-          >
-            <CloseIcon className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <FavoriteButton item={item} isTelegram={isTelegram} onToggle={onToggleFavorite} variant="plain" />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Yopish"
+              className="w-8 h-8 rounded-full flex items-center justify-center bg-tg-section-bg text-tg-hint"
+            >
+              <CloseIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="px-4">
           <MediaPreview item={item} />
         </div>
 
-        <div className="p-4 flex flex-col gap-3">
+        <div className="p-4 flex flex-col gap-3.5">
           {item.replyToText && (
-            <div className="rounded-card bg-tg-section-bg p-3 border-l-2 border-tg-button">
+            <div className="rounded-card bg-tg-section-bg p-3.5 border-l-2 border-tg-button">
               <div className="flex items-center gap-1.5 text-xs font-medium text-tg-accent mb-1">
                 <ReplyIcon className="w-3.5 h-3.5" />
                 Javob berilgan xabar:

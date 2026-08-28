@@ -84,6 +84,22 @@ export function StickerIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function HeartIcon({ filled, ...props }: SVGProps<SVGSVGElement> & { filled?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...props}
+    >
+      <path d="M12 20.6s-7.4-4.6-10.1-9.1C.4 8.8.9 5.4 3.6 3.6a5.8 5.8 0 0 1 7.7 1L12 5.5l.7-.9a5.8 5.8 0 0 1 7.7-1c2.7 1.8 3.2 5.2 1.7 7.9C19.4 16 12 20.6 12 20.6z" />
+    </svg>
+  );
+}
+
 export function ImageOffIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>

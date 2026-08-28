@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, getMedia, searchMedia } from '@/api/client';
+import { ApiError, getFavorites, getMedia, searchMedia } from '@/api/client';
 import type { Category, MediaItem } from '@/api/types';
 
 const PAGE_LIMIT = 24;
+
+/** A tab in the UI: one of the real categories, or the client-only Favorites view. */
+export type FeedTab = Category | 'FAVORITES';
 
 export interface UseMediaFeedResult {
   items: MediaItem[];
@@ -11,14 +14,24 @@ export interface UseMediaFeedResult {
   error: string | null;
   hasMore: boolean;
   loadMore: () => void;
+  /** Patches a single item in place — used for optimistic favorite toggles. */
+  updateItem: (id: number, patch: Partial<MediaItem>) => void;
+}
+
+function friendlyError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return 'Sevimlilarni ko‘rish uchun ilovani Telegram ichida oching.';
+    return err.message;
+  }
+  return 'Nomaʼlum xatolik yuz berdi.';
 }
 
 /**
- * Paginated feed for a category, switching transparently between
- * GET /media and GET /media/search depending on whether `query` is set.
- * Resets and refetches from page 1 whenever category or query changes.
+ * Paginated feed for a tab, switching transparently between GET /media,
+ * GET /media/search and GET /favorites depending on `tab`/`query`. Resets
+ * and refetches from page 1 whenever the tab or query changes.
  */
-export function useMediaFeed(category: Category, query: string): UseMediaFeedResult {
+export function useMediaFeed(tab: FeedTab, query: string): UseMediaFeedResult {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -26,11 +39,23 @@ export function useMediaFeed(category: Category, query: string): UseMediaFeedRes
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Guards against a slow, stale request (from a previous category/query)
+  // Guards against a slow, stale request (from a previous tab/query)
   // clobbering results of a newer one that resolved first.
   const requestToken = useRef(0);
 
-  const trimmedQuery = query.trim();
+  const isFavorites = tab === 'FAVORITES';
+  const trimmedQuery = isFavorites ? '' : query.trim();
+
+  const fetchPage = useCallback(
+    (pageNum: number) => {
+      if (isFavorites) return getFavorites({ page: pageNum, limit: PAGE_LIMIT });
+      const category = tab as Category;
+      return trimmedQuery
+        ? searchMedia({ q: trimmedQuery, category, page: pageNum, limit: PAGE_LIMIT })
+        : getMedia({ category, page: pageNum, limit: PAGE_LIMIT });
+    },
+    [isFavorites, tab, trimmedQuery],
+  );
 
   useEffect(() => {
     const token = ++requestToken.current;
@@ -39,11 +64,7 @@ export function useMediaFeed(category: Category, query: string): UseMediaFeedRes
     setItems([]);
     setPage(1);
 
-    const fetcher = trimmedQuery
-      ? searchMedia({ q: trimmedQuery, category, page: 1, limit: PAGE_LIMIT })
-      : getMedia({ category, page: 1, limit: PAGE_LIMIT });
-
-    fetcher
+    fetchPage(1)
       .then((res) => {
         if (requestToken.current !== token) return;
         setItems(res.data);
@@ -52,14 +73,13 @@ export function useMediaFeed(category: Category, query: string): UseMediaFeedRes
       })
       .catch((err: unknown) => {
         if (requestToken.current !== token) return;
-        setError(err instanceof ApiError ? err.message : 'Nomaʼlum xatolik yuz berdi.');
+        setError(friendlyError(err));
       })
       .finally(() => {
         if (requestToken.current !== token) return;
         setLoading(false);
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, trimmedQuery]);
+  }, [fetchPage]);
 
   const loadMore = useCallback(() => {
     if (loading || loadingMore || page >= totalPages) return;
@@ -67,11 +87,7 @@ export function useMediaFeed(category: Category, query: string): UseMediaFeedRes
     const nextPage = page + 1;
     setLoadingMore(true);
 
-    const fetcher = trimmedQuery
-      ? searchMedia({ q: trimmedQuery, category, page: nextPage, limit: PAGE_LIMIT })
-      : getMedia({ category, page: nextPage, limit: PAGE_LIMIT });
-
-    fetcher
+    fetchPage(nextPage)
       .then((res) => {
         if (requestToken.current !== token) return;
         setItems((prev) => {
@@ -83,13 +99,17 @@ export function useMediaFeed(category: Category, query: string): UseMediaFeedRes
       })
       .catch((err: unknown) => {
         if (requestToken.current !== token) return;
-        setError(err instanceof ApiError ? err.message : 'Nomaʼlum xatolik yuz berdi.');
+        setError(friendlyError(err));
       })
       .finally(() => {
         if (requestToken.current !== token) return;
         setLoadingMore(false);
       });
-  }, [category, trimmedQuery, page, totalPages, loading, loadingMore]);
+  }, [fetchPage, page, totalPages, loading, loadingMore]);
 
-  return { items, loading, loadingMore, error, hasMore: page < totalPages, loadMore };
+  const updateItem = useCallback((id: number, patch: Partial<MediaItem>) => {
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  }, []);
+
+  return { items, loading, loadingMore, error, hasMore: page < totalPages, loadMore, updateItem };
 }

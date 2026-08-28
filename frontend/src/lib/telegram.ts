@@ -78,3 +78,12 @@ export function isInsideTelegram(): boolean {
   // always empty; inside Telegram it's a populated, signed query string.
   return Boolean(webApp && webApp.initData && webApp.initData.length > 0);
 }
+
+/**
+ * The raw, signed `initData` string sent verbatim as the `x-telegram-init-data`
+ * header on every API call (per API_CONTRACT.md "v2 additions"). Empty string
+ * outside Telegram — the backend treats that as anonymous.
+ */
+export function getInitData(): string {
+  return getTelegramWebApp()?.initData ?? '';
+}

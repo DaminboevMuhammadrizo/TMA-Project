@@ -20,6 +20,18 @@ paths that keep `channel_media` up to date.
    @BotFather), and `ADMIN_TOKEN` (any random secret you choose). Leave
    `TELEGRAM_SESSION` blank for now — the next step generates it.
 
+   Two more env vars support the v2 features (favorites/caching/migration):
+   - `REDIS_URL` — points at the dedicated `redis` container (see
+     `docker-compose.yml`/`docker-compose.prod.yml`). Response caching is
+     best-effort: if this is unset or Redis is unreachable, the backend logs
+     one warning and falls back to hitting Postgres directly — it never
+     breaks a request.
+   - `STORAGE_CHAT_ID` — your own numeric Telegram user id, used as the
+     target chat when `POST /api/sync/migrate-to-bot` re-uploads
+     GramJS-backfilled media through the bot to mint permanent Bot-API
+     file_ids. Message **@userinfobot** on Telegram to get it (only needed
+     if/when you run that migration).
+
 3. **Run the database migration**
    ```
    npx prisma migrate dev --name init
@@ -99,21 +111,67 @@ Telegram's file server as usual. This is purely an internal implementation
 detail — the public schema shape, endpoint paths, and JSON response shapes
 are unchanged from `API_CONTRACT.md`.
 
+Live-downloading every `gramjs:`-backed thumbnail/file on every request
+doesn't scale (Telegram's own flood limits kick in once a gallery page
+requests ~20-30 thumbnails at once) — `POST /api/sync/migrate-to-bot`
+(`src/sync/migration.service.ts`) is the one-time fix: it walks every row
+still prefixed `gramjs:`, downloads it once via GramJS, re-uploads it
+through the bot to `STORAGE_CHAT_ID`, and overwrites `fileId`/
+`fileUniqueId`/`thumbFileUniqueId` with the real, permanent Bot-API values
+from the upload response — after which that row is served the same fast
+way as realtime-synced media, no GramJS involved. It's resumable (only ever
+selects rows still prefixed `gramjs:`) and self-rate-limits between rows.
+Once it's fully caught up, `ENABLE_GRAMJS=false` is safe to set.
+
 ## Project layout
 
 ```
 src/
   main.ts                 bootstrap, global prefix /api, CORS, ValidationPipe, BigInt fix
-  app.module.ts
+  app.module.ts            also wires TelegramAuthMiddleware globally (see below)
   prisma/                 PrismaService/PrismaModule (global)
-  common/                 shared guard, interceptor, category/link-extraction utils
+  redis/                  RedisService/RedisModule (global) — best-effort cache, see media.service.ts
+  common/                 guards, interceptor, telegram-auth.util.ts, category/link-extraction utils
   media/                  GET /api/media, /search, /:id, /file/:fileUniqueId, /thumb/:fileUniqueId
-  sync/                   MediaSyncService, GramjsService, BotService, POST /api/sync/full, GET /api/sync/status
+  favorites/              GET/POST/DELETE /api/favorites — requires x-telegram-init-data
+  sync/                   MediaSyncService, GramjsService, BotService, MigrationService,
+                          POST /api/sync/full, GET /api/sync/status,
+                          POST /api/sync/migrate-to-bot, GET /api/sync/migrate-status
 scripts/
   gramjs-login.ts         one-time interactive MTProto login (npm run gramjs:login)
 prisma/
   schema.prisma
 ```
+
+## Telegram WebApp auth (`x-telegram-init-data`)
+
+`TelegramAuthMiddleware` (registered globally in `app.module.ts`) validates
+the `x-telegram-init-data` header — if present — on every request, per the
+algorithm in `docs/API_CONTRACT.md` ("Telegram WebApp auth"), and stashes
+the result (a `bigint` user id, or `null`) on the request object:
+
+- `@TelegramUser()` (`src/common/decorators/telegram-user.decorator.ts`) —
+  reads the stashed value, never throws. Used on the media endpoints, where
+  auth is optional and only affects the `isFavorited` field.
+- `TelegramAuthGuard` (`src/common/guards/telegram-auth.guard.ts`) — 401s if
+  the stashed value is `null`. Used on the favorites endpoints, where auth
+  is required.
+
+The validation itself (`src/common/telegram-auth.util.ts`) is a pure
+function with no NestJS dependency, so it's easy to unit test in isolation.
+
+## Response caching (Redis)
+
+`MediaService` caches `GET /api/media`, `/api/media/search`, and
+`/api/media/:id` in Redis (`src/redis/redis.service.ts`), keyed by their
+query params — TTL ~10 minutes for list/search, ~1 hour for a single item.
+Only the *base* media fields are cached (never `isFavorited`, which is
+per-user); the favorited flag is merged in after every cache read/miss via
+one batched `Favorite` lookup for the ids on the page. Favorites endpoints
+themselves are never cached (see `favorites.service.ts`). Every Redis call
+is wrapped so a connection failure logs one warning and falls straight
+through to Postgres — caching is purely a performance optimization, never a
+hard dependency.
 
 ## What a human still needs to do
 
@@ -129,3 +187,10 @@ prisma/
   `/api/sync/full` (e.g. a deploy hook or you, manually, once).
 - Run `npx prisma migrate deploy` (or `migrate dev` locally) against that
   database before first boot.
+- Get `STORAGE_CHAT_ID` from @userinfobot and set it, then once
+  (post-deploy) call `POST /api/sync/migrate-to-bot` with `x-admin-token`
+  to migrate GramJS-backfilled rows to permanent Bot-API file_ids. Poll
+  `GET /api/sync/migrate-status` the same way as `/api/sync/status`.
+- Provision the `redis` container (already in both `docker-compose.yml` and
+  `docker-compose.prod.yml`) and set `REDIS_URL` — optional but recommended,
+  the backend runs fine without it, just uncached.

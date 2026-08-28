@@ -35,6 +35,8 @@ export interface MediaItem {
   fileName: string | null;
   stickerSetName: string | null;
   createdAt: string; // ISO 8601
+  /** v2: false if x-telegram-init-data was absent/invalid on this request. */
+  isFavorited: boolean;
 }
 
 export interface PaginationMeta {

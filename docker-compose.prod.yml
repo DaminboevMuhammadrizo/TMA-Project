@@ -1,9 +1,20 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: tma_redis
+    restart: unless-stopped
+    # Our own dedicated cache container on the compose network — NOT the
+    # VPS's other prohome_redis. No persistence needed (pure cache), so no
+    # volume. backend reaches it as redis://redis:6379 via Docker's
+    # compose-network DNS (no extra_hosts needed, unlike postgres below).
+
   backend:
     build:
       context: ./backend
     container_name: tma_backend
     restart: unless-stopped
+    depends_on:
+      - redis
     env_file:
       - ./backend/.env
     extra_hosts:

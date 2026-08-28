@@ -14,16 +14,24 @@ services:
     volumes:
       - tma_postgres_data:/var/lib/postgresql/data
 
+  redis:
+    image: redis:7-alpine
+    container_name: tma_redis
+    restart: unless-stopped
+    # Pure cache, no persistence needed.
+
   backend:
     build: ./backend
     container_name: tma_backend
     restart: unless-stopped
     depends_on:
       - postgres
+      - redis
     env_file:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql://tma:tma@postgres:5432/tma_gallery
+      REDIS_URL: redis://redis:6379
     ports:
       - "3000:3000"
 

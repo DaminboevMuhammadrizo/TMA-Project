@@ -2,12 +2,17 @@ import { useState } from 'react';
 import type { MediaItem } from '@/api/types';
 import { formatDuration, formatViews } from '@/utils/format';
 import { usePointerFine } from '@/utils/device';
+import { useInView } from '@/hooks/useInView';
 import { EyeIcon, LinkIcon, PlayIcon, ReplyIcon, ShareIcon, StickerIcon } from './icons';
+import { FavoriteButton } from './FavoriteButton';
+import { Shimmer } from './Skeletons';
 
 interface MediaCardProps {
   item: MediaItem;
+  isTelegram: boolean;
   onOpenDetail: (item: MediaItem) => void;
   onShare: (item: MediaItem) => void;
+  onToggleFavorite: (item: MediaItem) => void;
   openLink: (url: string) => void;
 }
 
@@ -19,9 +24,15 @@ function isAnimatedSticker(item: MediaItem): boolean {
 }
 
 /** Grid cell for VIDEO / VIDEO_NOTE / ANIMATION / PHOTO / STICKER items. */
-export function MediaCard({ item, onOpenDetail, onShare, openLink }: MediaCardProps) {
+export function MediaCard({ item, isTelegram, onOpenDetail, onShare, onToggleFavorite, openLink }: MediaCardProps) {
   const isPointerFine = usePointerFine();
   const [imgError, setImgError] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  // Real src/poster is only handed to the DOM once the card scrolls near the
+  // viewport — with ~1900 items this is what stops the browser from trying
+  // to fetch and decode everything at once. `loading="lazy"` below is a
+  // second line of defense once the <img> does mount.
+  const { ref, inView } = useInView<HTMLDivElement>();
   const isCircular = item.mediaType === 'VIDEO_NOTE';
   const hasOverlayContent = Boolean(item.caption || item.links.length > 0 || item.replyToText);
 
@@ -30,13 +41,16 @@ export function MediaCard({ item, onOpenDetail, onShare, openLink }: MediaCardPr
 
   return (
     <div
+      ref={ref}
       className={`group relative aspect-square overflow-hidden bg-tg-section-bg cursor-pointer select-none ${
         isCircular ? 'rounded-full' : 'rounded-card'
       }`}
       onClick={() => onOpenDetail(item)}
     >
       {/* Media */}
-      {item.mediaType === 'ANIMATION' ? (
+      {!inView ? (
+        <Shimmer className="w-full h-full" />
+      ) : item.mediaType === 'ANIMATION' ? (
         <video
           src={item.fileUrl}
           poster={item.thumbUrl ?? undefined}
@@ -52,13 +66,20 @@ export function MediaCard({ item, onOpenDetail, onShare, openLink }: MediaCardPr
           <span className="text-[10px] px-2 text-center leading-tight">Animatsiyali stiker</span>
         </div>
       ) : (
-        <img
-          src={staticSrc}
-          onError={() => setImgError(true)}
-          loading="lazy"
-          alt={item.caption ?? item.fileName ?? item.mediaType}
-          className="w-full h-full object-cover"
-        />
+        <>
+          {!imgLoaded && <Shimmer className="absolute inset-0" />}
+          <img
+            src={staticSrc}
+            onLoad={() => setImgLoaded(true)}
+            onError={() => setImgError(true)}
+            loading="lazy"
+            decoding="async"
+            alt={item.caption ?? item.fileName ?? item.mediaType}
+            className={`w-full h-full object-cover transition-opacity duration-300 ${
+              imgLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+        </>
       )}
 
       {/* Play affordance for actual videos */}
@@ -82,6 +103,15 @@ export function MediaCard({ item, onOpenDetail, onShare, openLink }: MediaCardPr
           )}
         </div>
       )}
+
+      {/* Favorite toggle */}
+      <FavoriteButton
+        item={item}
+        isTelegram={isTelegram}
+        onToggle={onToggleFavorite}
+        variant="overlay"
+        className="absolute top-1.5 left-1.5"
+      />
 
       {/* Share button */}
       <button

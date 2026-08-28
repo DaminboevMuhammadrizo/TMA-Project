@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Bot, Context, InlineKeyboard } from 'grammy';
+import { Bot, Context, InlineKeyboard, InputFile } from 'grammy';
 import type { FilterQuery } from 'grammy';
 import type { Message, PhotoSize } from 'grammy/types';
 import { MediaType } from '@prisma/client';
@@ -105,6 +105,45 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       throw new Error('BOT_TOKEN not configured');
     }
     return token;
+  }
+
+  /**
+   * Re-uploads a downloaded buffer to `chatId` via the mediaType-appropriate
+   * `sendXxx` Bot API method, returning the resulting Message (used by
+   * MigrationService to mint a permanent file_id/file_unique_id for
+   * gramjs-backfilled rows — see API_CONTRACT.md "POST /api/sync/migrate-to-bot").
+   */
+  async uploadToStorage(
+    chatId: number,
+    mediaType: MediaType,
+    buffer: Buffer,
+    filename: string | null,
+  ): Promise<Message> {
+    if (!this.bot) {
+      throw new Error('BOT_TOKEN not configured — cannot upload to storage chat');
+    }
+    const file = new InputFile(buffer, filename ?? undefined);
+
+    switch (mediaType) {
+      case MediaType.AUDIO:
+        return this.bot.api.sendAudio(chatId, file);
+      case MediaType.VOICE:
+        return this.bot.api.sendVoice(chatId, file);
+      case MediaType.VIDEO:
+        return this.bot.api.sendVideo(chatId, file);
+      case MediaType.VIDEO_NOTE:
+        return this.bot.api.sendVideoNote(chatId, file);
+      case MediaType.PHOTO:
+        return this.bot.api.sendPhoto(chatId, file);
+      case MediaType.ANIMATION:
+        return this.bot.api.sendAnimation(chatId, file);
+      case MediaType.STICKER:
+        return this.bot.api.sendSticker(chatId, file);
+      default: {
+        const exhaustiveCheck: never = mediaType;
+        throw new Error(`Unhandled MediaType for upload: ${exhaustiveCheck as string}`);
+      }
+    }
   }
 }
 

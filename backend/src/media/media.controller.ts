@@ -5,6 +5,7 @@ import { MediaFileService } from './media-file.service';
 import { GetMediaQueryDto } from './dto/get-media-query.dto';
 import { SearchMediaQueryDto } from './dto/search-media-query.dto';
 import { MediaItem, PaginatedResponse } from './media-item.mapper';
+import { TelegramUser } from '../common/decorators/telegram-user.decorator';
 
 @Controller('media')
 export class MediaController {
@@ -14,13 +15,19 @@ export class MediaController {
   ) {}
 
   @Get()
-  findAll(@Query() query: GetMediaQueryDto): Promise<PaginatedResponse<MediaItem>> {
-    return this.mediaService.findAll(query);
+  findAll(
+    @Query() query: GetMediaQueryDto,
+    @TelegramUser() userId: bigint | null,
+  ): Promise<PaginatedResponse<MediaItem>> {
+    return this.mediaService.findAll(query, userId);
   }
 
   @Get('search')
-  search(@Query() query: SearchMediaQueryDto): Promise<PaginatedResponse<MediaItem>> {
-    return this.mediaService.search(query);
+  search(
+    @Query() query: SearchMediaQueryDto,
+    @TelegramUser() userId: bigint | null,
+  ): Promise<PaginatedResponse<MediaItem>> {
+    return this.mediaService.search(query, userId);
   }
 
   @Get('file/:fileUniqueId')
@@ -34,7 +41,10 @@ export class MediaController {
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number): Promise<MediaItem> {
-    return this.mediaService.findOne(id);
+  findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @TelegramUser() userId: bigint | null,
+  ): Promise<MediaItem> {
+    return this.mediaService.findOne(id, userId);
   }
 }

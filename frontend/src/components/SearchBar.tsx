@@ -22,14 +22,14 @@ export function SearchBar({ value, onChange, placeholder }: SearchBarProps) {
   }, [draft]);
 
   return (
-    <div className="relative px-3 pb-2">
+    <div className="relative px-3 pb-3">
       <SearchIcon className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-tg-hint pointer-events-none" />
       <input
         type="search"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder={placeholder ?? 'Qidirish...'}
-        className="w-full pl-9 pr-9 py-2 rounded-full bg-tg-section-bg text-tg-text placeholder:text-tg-hint text-sm outline-none focus:ring-2 focus:ring-tg-button"
+        className="w-full pl-9 pr-9 py-2.5 rounded-full bg-tg-section-bg border border-tg-section-separator/60 text-tg-text placeholder:text-tg-hint text-sm outline-none transition-shadow focus:ring-2 focus:ring-tg-button focus:border-transparent"
       />
       {draft && (
         <button

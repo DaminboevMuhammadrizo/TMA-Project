@@ -1,3 +1,4 @@
+import { getInitData } from '@/lib/telegram';
 import type { Category, MediaItem, MediaListResponse, MediaType } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
@@ -37,6 +38,29 @@ export function resolveMediaItem(item: MediaItem): MediaItem {
   };
 }
 
+/**
+ * Sends the raw Telegram WebApp `initData` as `x-telegram-init-data` on every
+ * call, whenever it's available. Per API_CONTRACT.md this is required for
+ * favorites endpoints and optional (enriches `isFavorited`) for
+ * list/search/detail — outside Telegram it's simply omitted, which the
+ * backend treats as anonymous rather than rejecting the request.
+ */
+function authHeaders(): HeadersInit {
+  const initData = getInitData();
+  return initData ? { 'x-telegram-init-data': initData } : {};
+}
+
+async function readErrorMessage(res: Response): Promise<string> {
+  let message = `Request failed with status ${res.status}`;
+  try {
+    const body = await res.json();
+    if (body?.message) message = Array.isArray(body.message) ? body.message.join(', ') : body.message;
+  } catch {
+    // response wasn't JSON — ignore, keep default message
+  }
+  return message;
+}
+
 async function request<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
   const url = new URL(`${API_BASE_URL}${path}`);
   if (params) {
@@ -49,7 +73,7 @@ async function request<T>(path: string, params?: Record<string, string | number 
 
   let res: Response;
   try {
-    res = await fetch(url.toString());
+    res = await fetch(url.toString(), { headers: authHeaders() });
   } catch {
     throw new ApiError(
       `Network error while contacting the API. Is the backend running at ${API_BASE_URL}?`,
@@ -58,17 +82,27 @@ async function request<T>(path: string, params?: Record<string, string | number 
   }
 
   if (!res.ok) {
-    let message = `Request failed with status ${res.status}`;
-    try {
-      const body = await res.json();
-      if (body?.message) message = Array.isArray(body.message) ? body.message.join(', ') : body.message;
-    } catch {
-      // response wasn't JSON — ignore, keep default message
-    }
-    throw new ApiError(message, res.status);
+    throw new ApiError(await readErrorMessage(res), res.status);
   }
 
   return res.json() as Promise<T>;
+}
+
+/** POST/DELETE calls that return 204 with no body (favorites mutations). */
+async function mutate(path: string, method: 'POST' | 'DELETE'): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, { method, headers: authHeaders() });
+  } catch {
+    throw new ApiError(
+      `Network error while contacting the API. Is the backend running at ${API_BASE_URL}?`,
+      0,
+    );
+  }
+
+  if (!res.ok) {
+    throw new ApiError(await readErrorMessage(res), res.status);
+  }
 }
 
 function normalizeList(res: MediaListResponse): MediaListResponse {
@@ -115,4 +149,28 @@ export async function searchMedia(params: SearchMediaParams): Promise<MediaListR
 export async function getMediaById(id: number): Promise<MediaItem> {
   const res = await request<MediaItem>(`/media/${id}`);
   return resolveMediaItem(res);
+}
+
+export interface GetFavoritesParams {
+  page?: number;
+  limit?: number;
+}
+
+/** GET /api/favorites — requires x-telegram-init-data, 401 without it. */
+export async function getFavorites(params: GetFavoritesParams = {}): Promise<MediaListResponse> {
+  const res = await request<MediaListResponse>('/favorites', {
+    page: params.page,
+    limit: params.limit,
+  });
+  return normalizeList(res);
+}
+
+/** POST /api/favorites/:mediaId — idempotent, requires x-telegram-init-data. */
+export async function addFavorite(mediaId: number): Promise<void> {
+  await mutate(`/favorites/${mediaId}`, 'POST');
+}
+
+/** DELETE /api/favorites/:mediaId — idempotent, requires x-telegram-init-data. */
+export async function removeFavorite(mediaId: number): Promise<void> {
+  await mutate(`/favorites/${mediaId}`, 'DELETE');
 }

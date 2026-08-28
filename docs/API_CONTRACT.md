@@ -130,6 +130,97 @@ interface MediaItem {
 }
 ```
 
+## v2 additions — favorites, auth, migration, caching
+
+### Telegram WebApp auth (`x-telegram-init-data` header)
+
+Any endpoint that needs to know *which* Telegram user is calling reads the
+raw `window.Telegram.WebApp.initData` string, sent verbatim by the frontend
+as the `x-telegram-init-data` header on every request that needs it
+(favorites endpoints always; `GET /api/media*` optionally, to enrich results
+with `isFavorited`).
+
+Backend validation (standard Telegram algorithm — see
+https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app):
+1. Parse the header as a query string into key/value pairs.
+2. Remove `hash`, sort the remaining keys alphabetically, join as
+   `key=value` lines joined by `\n` → `data_check_string`.
+3. `secret_key = HMAC_SHA256(key="WebAppData", data=BOT_TOKEN)`
+4. `computed_hash = HMAC_SHA256(key=secret_key, data=data_check_string)` (hex)
+5. Reject (401) if `computed_hash !== hash`, or if `auth_date` is older than
+   24h (replay protection).
+6. The Telegram user's numeric id comes from the JSON-encoded `user` field
+   once validated: `JSON.parse(params.get('user')).id`.
+
+Endpoints that require this header return `401` if it's missing or invalid.
+Endpoints where it's optional (`GET /api/media*`) simply omit the
+`isFavorited` enrichment (defaults to `false`) if absent/invalid — they must
+NOT reject the request.
+
+### MediaItem — new field
+
+```ts
+interface MediaItem {
+  // ...all fields as above, plus:
+  isFavorited: boolean; // false if x-telegram-init-data absent/invalid
+}
+```
+
+### GET /api/favorites
+Requires `x-telegram-init-data`. Query params: `page`, `limit` (same
+defaults as `GET /api/media`). Response: same paginated shape as
+`GET /api/media`, containing only that user's favorited items
+(`isFavorited: true` on all of them), newest-favorited first.
+
+### POST /api/favorites/:mediaId
+Requires `x-telegram-init-data`. Adds `mediaId` (the `MediaItem.id`, not
+`fileUniqueId`) to the caller's favorites. Idempotent (favoriting twice is a
+no-op, not an error). Response `204`. `404` if `mediaId` doesn't exist.
+
+### DELETE /api/favorites/:mediaId
+Requires `x-telegram-init-data`. Removes the favorite. Idempotent. Response
+`204`.
+
+### Prisma model — Favorite
+
+```
+model Favorite {
+  id             Int      @id @default(autoincrement())
+  telegramUserId BigInt   @map("telegram_user_id")
+  mediaId        Int      @map("media_id")
+  media          ChannelMedia @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([telegramUserId, mediaId])
+  @@map("favorites")
+}
+```
+
+### POST /api/sync/migrate-to-bot
+Admin-only (`x-admin-token`). One-time migration: for every `channel_media`
+row whose `fileId` starts with `gramjs:` (backfilled media with no permanent
+Bot-API file_id), downloads the bytes once via GramJS and re-uploads them
+through the bot to a private storage chat (`STORAGE_CHAT_ID` env var — the
+admin's own Telegram user id, i.e. their private chat with the bot), then
+overwrites `fileId`/`fileUniqueId`/`thumbFileUniqueId` with the real,
+permanent Bot-API values from the upload response. Resumable (only touches
+rows still prefixed `gramjs:`). Response `202 { "status": "started" }` /
+`{ "status": "already_running" }`. Purpose: after this completes, GramJS is
+no longer needed to *serve* any media (only relevant if you ever want to
+backfill an even-older range again), so `ENABLE_GRAMJS=false` becomes safe.
+
+### GET /api/sync/migrate-status
+Admin-only. Returns `{ "running": bool, "migrated": number, "remaining":
+number, "lastError": string|null }`.
+
+### Redis caching (backend-internal, not frontend-facing)
+`GET /api/media`, `/api/media/search`, `/api/media/:id` responses are cached
+in Redis keyed by their full query params, TTL ~10 minutes (list/search) /
+~1 hour (single item by id — rarely changes). Cache is best-effort: a Redis
+outage must degrade to hitting Postgres directly, never break the request.
+Favorites responses are NOT cached (per-user, cheap query, must stay fresh
+after a POST/DELETE).
+
 ## Environment variables
 
 Backend `.env`:
@@ -142,6 +233,8 @@ TELEGRAM_SESSION=           # GramJS StringSession, obtained via one-time login 
 TELEGRAM_CHANNEL=           # @channelusername or numeric id
 BOT_TOKEN=                  # from @BotFather, for grammY realtime listener + file proxy
 MINI_APP_URL=                # https://your-domain, shown as the "Open App" button on /start (must be HTTPS)
+STORAGE_CHAT_ID=             # your own numeric Telegram user id (get it from @userinfobot) — used as the target chat when POST /api/sync/migrate-to-bot re-uploads backfilled media through the bot
+REDIS_URL=redis://redis:6379 # dedicated Redis container (see docker-compose.prod.yml), NOT the VPS's other prohome_redis
 ADMIN_TOKEN=                # shared secret for /api/sync/* endpoints
 PORT=3000
 CORS_ORIGIN=http://localhost:5173
@@ -158,3 +251,10 @@ VITE_API_BASE_URL=http://localhost:3000/api
   API returns paths relative to the API root, not the origin.
 - `viewsCount`, `durationSec` etc. can be `null`/`0` — always guard.
 - Pagination is 1-indexed.
+- Send `window.Telegram.WebApp.initData` as the `x-telegram-init-data`
+  header on every API call (list/search/detail AND favorites) — outside
+  Telegram this will be an empty string, which the backend treats as
+  "anonymous" (no `isFavorited` enrichment, favorites endpoints 401).
+- Use native `loading="lazy"` plus an `IntersectionObserver`-driven
+  skeleton for grid images/thumbs — with ~1900 items, everything must not
+  attempt to load at once.
